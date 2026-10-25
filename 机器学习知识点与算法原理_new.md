@@ -1054,6 +1054,8 @@ K-Means 和 DBSCAN 返回硬标签；GMM 的 `predict_proba()` 返回每个样�
 
 对应线索：深度学习 01—16；09—12 的画面与早期部分主题相近，不能仅凭相似封面认定是同一视频。
 
+本节至第 16 节同时吸收用户提供的《深度学习01笔记》至《深度学习07笔记》。这些笔记中的学习说明、代码和个人取舍只作为资料来源；正文重新核对概念后按知识结构整理，没有把笔记中的指令性语句当作本文件的编辑要求。
+
 ### 9.1 感知机与 MLP
 
 **感知机原理：** 加权求和后过阈值，输出类别。对误分类样本，更新权重使正确类别的方向得分更高，例如 w←w+ηyx。
@@ -1144,6 +1146,56 @@ for X_batch, y_batch in loader:                 # 遍历一个训练轮次中的
 ```
 
 `DataLoader` 负责分批和打乱数据；`zero_grad()` 清除旧梯度；`backward()` 计算梯度；`step()` 更新参数。MLP 是 Multilayer Perceptron（多层感知机）。
+
+### 9.7 张量、自动求导与任务输出的完整对应关系
+
+PyTorch 张量除了数值，还带有三个会直接影响训练的属性：
+
+- `dtype`：深度学习常用 `float32`；标签若交给 `CrossEntropyLoss`，通常应为整数类型 `long`。
+- `device`：CPU、CUDA 或 MPS。模型参数、输入和标签必须位于兼容设备。
+- `requires_grad`：决定是否为该张量记录梯度。模型参数默认需要梯度，原始输入通常不需要。
+
+从 NumPy 转换张量时要留意类型继承：NumPy 的浮点数组常默认为 `float64`，直接转换后会得到双精度张量。模型参数若是 `float32`，输入也应明确转成相同类型。`.to(device)` 返回移动后的张量，必须接住返回值；`.detach()` 切断当前张量与计算图的联系，但仍可能共享底层存储，需要独立副本时再配合 `.clone()`。
+
+梯度默认累积，因此标准更新顺序是：清梯度 → 前向传播 → 计算损失 → 反向传播 → 更新参数。梯度累积训练则有意跨多个小批次累积梯度，只在达到累计步数后调用 `optimizer.step()`，并应按累计步数缩放损失。
+
+输出层、标签格式与损失函数必须成套设计：
+
+| 任务 | 模型最后输出 | 标签 | 常用损失 | 推理转换 |
+|---|---|---|---|---|
+| 回归 | 每个目标一个实数 | 浮点数 | `MSELoss`、`L1Loss` | 通常直接使用输出 |
+| 二分类 | 每个样本一个 logit | 0/1 浮点标签 | `BCEWithLogitsLoss` | `sigmoid(logit)` 后按阈值分类 |
+| 多类单标签 | 每类一个 logit | 整数类别编号 | `CrossEntropyLoss` | `softmax` 得概率，`argmax` 得类别 |
+| 多标签分类 | 每个标签一个 logit | 多个 0/1 标签 | `BCEWithLogitsLoss` | 每个标签分别做 Sigmoid 和阈值判断 |
+
+`BCEWithLogitsLoss` 已把 Sigmoid 与二元交叉熵合并，`CrossEntropyLoss` 已把 LogSoftmax 与负对数似然合并。训练前手工重复激活既可能造成数值不稳定，也会让损失含义错误。
+
+数据应先划分训练、验证和测试，再用训练集估计均值与标准差。验证集用于选结构、超参数和早停轮次；测试集只在选择结束后使用。`model.eval()` 控制 Dropout、BatchNorm 等层的行为，`torch.no_grad()` 控制是否记录梯度，两者解决不同问题，评估时通常同时使用。
+
+下面把张量类型、设备、二分类输出和一次标准更新放在一起。示例假定 `X_numpy`、`y_numpy` 已经由训练集准备好：
+
+```python
+import torch
+from torch import nn
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")         # 有 CUDA 时使用 GPU，否则使用 CPU
+X_batch = torch.as_tensor(X_numpy, dtype=torch.float32, device=device)          # 特征统一转换为 float32 并移动到训练设备
+y_batch = torch.as_tensor(y_numpy, dtype=torch.float32, device=device)          # BCEWithLogitsLoss 要求标签为浮点数 0 或 1
+
+model = nn.Linear(X_batch.shape[1], 1).to(device)                               # 二分类模型每个样本只输出一个未归一化 logit
+loss_fn = nn.BCEWithLogitsLoss()                                                 # 内部已经组合 Sigmoid 与二元交叉熵
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)                      # AdamW 更新模型中所有可训练参数
+
+optimizer.zero_grad()                                                            # 清除上一轮留在参数上的梯度
+logits = model(X_batch).squeeze(-1)                                               # 前向传播并把形状从 [B,1] 调整为 [B]
+loss = loss_fn(logits, y_batch)                                                   # 直接把 logits 交给组合损失，不能先手工 Sigmoid
+loss.backward()                                                                   # 根据计算图反向求出每个参数的梯度
+optimizer.step()                                                                  # 用当前梯度更新权重和偏置
+
+with torch.no_grad():                                                             # 推理阶段不构建计算图
+    probability = torch.sigmoid(model(X_batch).squeeze(-1))                      # 只有需要概率时才对 logits 使用 Sigmoid
+    prediction = probability >= 0.5                                               # 根据选定阈值转换成布尔类别预测
+```
 
 ## 10. 多输入多输出、调参和深层网络训练
 
@@ -1245,6 +1297,60 @@ print(study.best_params, study.best_value)                              # 输出
 
 `trial` 表示一次试验；`study` 管理整组试验；`direction="maximize"` 表示评价指标越大越好。若返回验证损失，应改成 `minimize`。
 
+### 10.8 激活函数、初始化与归一化的配套选择
+
+深层网络的稳定训练依赖一组彼此匹配的选择，不能孤立地背某一种技巧：
+
+| 激活函数 | 推荐初始化 | 主要特点 |
+|---|---|---|
+| Sigmoid、tanh | Xavier / Glorot | 输出会饱和，深层网络可能梯度消失 |
+| ReLU、Leaky ReLU、PReLU | He / Kaiming | ReLU 简单高效；带负半轴斜率的变体降低神经元死亡风险 |
+| SELU | LeCun Normal | 在严格条件下形成自归一化 MLP，需要标准化输入和 AlphaDropout |
+| GELU | Xavier 或框架默认的 Transformer 初始化 | 平滑门控，BERT 等 Transformer 常用 |
+| SiLU / Swish | He 或框架默认初始化 | 平滑且非单调，现代卷积网络中常见 |
+| SwiGLU | 按 Transformer 实现设置 | 用门控前馈层增强表达能力，现代大语言模型中常见 |
+
+SELU 的自归一化条件较严格：输入应近似零均值、单位方差，网络主要由全连接层构成，隐藏层统一使用 SELU 与 LeCun 初始化；普通 Dropout、BatchNorm、残差连接等会改变其理论条件。它是一套完整方案，不是把 ReLU 单独替换为 SELU 就自动生效。
+
+Batch Normalization 在一个批次内按特征统计，训练和推理使用不同统计量；Layer Normalization 在单个样本内部沿特征维归一化，不依赖同批其他样本，训练和推理行为一致。小批次、变长序列和 Transformer 通常更适合 LayerNorm；卷积网络中 BatchNorm 仍很常见。
+
+梯度裁剪必须放在 `loss.backward()` 之后、`optimizer.step()` 之前。按范数裁剪会在整体梯度范数超过阈值时统一缩放，保留各参数梯度的大致方向；逐值裁剪直接截断每个梯度元素，两者不能混为一谈。
+
+下面演示 ReLU、He 初始化和 BatchNorm 的成套配置：
+
+```python
+import torch
+from torch import nn
+
+model = nn.Sequential(
+    nn.Linear(n_features, 128),                                                   # 第一层把输入特征映射到 128 维
+    nn.BatchNorm1d(128),                                                          # 训练时按当前批次统计量归一化 128 个特征
+    nn.ReLU(),                                                                    # ReLU 与 He 初始化配合使用
+    nn.Linear(128, 64),                                                           # 第二层继续压缩隐藏表示
+    nn.BatchNorm1d(64),                                                           # 每个隐藏特征拥有可学习的 gamma 和 beta
+    nn.ReLU(),                                                                    # 增加非线性表达能力
+    nn.Linear(64, n_classes),                                                     # 输出每个类别的原始 logits
+)
+
+def initialize_relu_layer(module):
+    if isinstance(module, nn.Linear):                                             # 只初始化全连接层，跳过 BatchNorm 和激活层
+        nn.init.kaiming_normal_(module.weight, nonlinearity="relu")               # 使用适合 ReLU 的 He 正态初始化
+        nn.init.zeros_(module.bias)                                                # 偏置从 0 开始不会造成隐藏单元权重对称
+
+model.apply(initialize_relu_layer)                                                # 递归访问所有子模块并应用初始化函数
+model = model.to(device)                                                          # 初始化完成后把整个模型移动到计算设备
+```
+
+### 10.9 模型保存、导出与编译
+
+- `state_dict` 保存权重和缓冲区，体积清晰、便于版本迁移；加载时必须先按相同结构创建模型。
+- 训练检查点还应保存优化器、调度器、当前轮次、随机状态和关键超参数，才能可靠恢复训练。
+- TorchScript 可把部分 PyTorch 模型交给非 Python 环境推理，目前以维护为主。
+- `torch.compile()` 面向 PyTorch 2.x 的图捕获与运行优化，首次编译有开销，并非所有动态代码都能同样加速。
+- ONNX 是跨框架交换格式，导出成功不代表目标运行时的每个算子、动态形状和数值结果都完全一致，必须用代表性输入做对比测试。
+
+导出版本用于推理，不应默认还能像原始 eager 模型一样继续训练。上线前需要核对预处理、输入形状、动态批次、数值精度、输出名称和目标设备支持情况。
+
 ## 11. 优化器、学习率与正则化
 
 对应线索：深度学习 30、35—39。
@@ -1325,6 +1431,46 @@ for X_batch, y_batch in train_loader:                   # 遍历当前训练轮�
 ```
 
 `weight_decay` 是解耦权重衰减；`OneCycleLR` 在一个训练周期内先升高再降低学习率。调度器按批次设计时，`scheduler.step()` 应放在每次参数更新之后。
+
+### 11.5 正则化与不确定性的进一步实践
+
+**最大范数正则化**在参数更新后限制每个神经元入射权重的范数。若权重向量 w 超过上限 r，就把它按比例缩回边界：
+
+w ← w · min(1, r / (‖w‖₂ + ε))
+
+**符号说明：** `w` 是某个神经元或卷积核的权重向量；`r` 是允许的最大范数；`‖w‖₂` 是二范数；`ε` 是防止除零的小常数；`min` 保证范数未超限时不放大权重。
+
+它应在 `optimizer.step()` 之后执行；梯度裁剪约束的是本次更新使用的梯度，最大范数约束的是更新后的权重，两者作用对象不同。
+
+**MC Dropout（Monte Carlo Dropout，蒙特卡洛 Dropout）**在推理时保留 Dropout，对同一输入重复预测。正确的分类汇总方式是每次先把 logits 变成概率，再对概率求均值和标准差。均值用于预测，标准差可作为模型对不同随机子网络分歧程度的近似指标。它不是严格的风险保证，采样次数越多，计算延迟也越高。
+
+普通 Dropout 在训练时随机置零并把保留激活除以保留概率，评估时关闭。因此训练模式下记录的损失与评估模式下的验证损失并非完全同条件；若要严格比较，应切到评估模式重新计算训练集指标。
+
+实用起点可以是 He 初始化、ReLU 或 SiLU、AdamW、验证集早停，再根据问题增加归一化、学习率调度和 Dropout。正则化方法叠加过多会造成欠拟合，所有强度都应根据验证结果选择。
+
+下面实现 MC Dropout：整体模型保持评估模式，仅把 Dropout 层重新打开，再对同一批输入重复预测。
+
+```python
+import torch
+from torch import nn
+
+def predict_with_mc_dropout(model, X, n_samples=50):
+    model.eval()                                                                  # 先让 BatchNorm 等层使用稳定的推理行为
+    for module in model.modules():
+        if isinstance(module, nn.Dropout):                                        # 只重新启用 Dropout 的随机掩码
+            module.train()
+
+    sampled_probabilities = []                                                    # 保存每次随机子网络得到的类别概率
+    with torch.no_grad():                                                         # 重复推理不需要梯度和计算图
+        for _ in range(n_samples):
+            logits = model(X)                                                     # 每次前向传播会得到不同的 Dropout 掩码
+            sampled_probabilities.append(logits.softmax(dim=-1))                  # 每次都先把 logits 独立转换为概率
+
+    probabilities = torch.stack(sampled_probabilities, dim=0)                    # 形状为 [采样次数, 批次, 类别数]
+    mean_probability = probabilities.mean(dim=0)                                 # 概率均值作为最终预测分布
+    uncertainty = probabilities.std(dim=0)                                       # 概率标准差近似反映随机子网络分歧
+    return mean_probability, uncertainty
+```
 
 ## 12. CNN：卷积神经网络
 
@@ -1422,6 +1568,37 @@ print(features.shape)
 
 第一层 `groups=32` 让每个输入通道独立卷积，称为 depthwise convolution；后面的 1×1 卷积混合通道，称为 pointwise convolution。
 
+### 12.6 平移性质、感受野、增强与显存
+
+卷积的平移等变性表示输入移动后，特征图会相应移动；分类任务希望最终输出对小幅移动不敏感，这种平移不变性通常由池化、步幅卷积、全局聚合和数据增强共同近似获得。等变性描述空间对应关系，不等于网络天然能处理任意旋转、缩放或视角变化。
+
+感受野是一个高层神经元在原图上能够影响它的区域。连续堆叠 3×3 卷积会逐层扩大感受野，并在每层之间加入非线性；步幅和池化会更快扩大有效覆盖范围，但也会丢失细粒度空间信息。目标检测和分割需要保留细节，因此常使用多尺度特征或编码器—解码器结构。
+
+常见图像增强包括随机裁剪、水平翻转、小角度旋转、缩放和颜色扰动。增强必须保持标签语义：文字识别不能随意水平翻转，医学图像也需要遵循成像与解剖规则。验证集和测试集通常只使用确定性的尺寸调整与归一化。
+
+训练显存不只存模型参数，还要保存中间激活、梯度和优化器状态。遇到显存不足时，可依次考虑减小批量、梯度累积、混合精度、降低分辨率或通道数、梯度检查点和轻量网络。梯度累积增加的是有效批量，不会减少单个样本前向传播所需的激活内存。
+
+训练集和验证集应使用不同的图像变换：训练集加入随机增强，验证集只做确定性预处理。
+
+```python
+from torchvision import transforms
+
+train_transform = transforms.Compose([
+    transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),                         # 随机裁剪并缩放到模型要求的 224×224
+    transforms.RandomHorizontalFlip(p=0.5),                                     # 以 50% 概率水平翻转，仅适用于标签语义不变的任务
+    transforms.ColorJitter(brightness=0.2, contrast=0.2),                       # 随机扰动亮度和对比度以提高光照鲁棒性
+    transforms.ToTensor(),                                                       # 把 PIL 图像转换为 [C,H,W] 的浮点张量
+    transforms.Normalize(mean=IMAGE_MEAN, std=IMAGE_STD),                       # 使用预训练模型匹配的通道均值和标准差
+])
+
+valid_transform = transforms.Compose([
+    transforms.Resize(256),                                                      # 验证阶段使用确定性的尺寸调整
+    transforms.CenterCrop(224),                                                  # 固定中心裁剪，避免随机增强造成指标波动
+    transforms.ToTensor(),                                                       # 转换为 PyTorch 张量
+    transforms.Normalize(mean=IMAGE_MEAN, std=IMAGE_STD),                       # 与训练和预训练模型保持相同归一化
+])
+```
+
 ## 13. 现代 CNN、迁移学习与目标检测
 
 对应线索：深度学习 44—50。
@@ -1496,6 +1673,48 @@ model.fc = nn.Linear(model.fc.in_features, num_classes)     # 替换分类头，
 
 残差块中的 `+ x` 是 skip connection（跳跃连接）。加载预训练权重后替换 `fc` 分类头，即可为新类别微调。仓库本章没有 Ultralytics YOLO 训练示例，因此这里不把其他来源代码冒充为该仓库代码。
 
+### 13.6 从分类到定位、检测、跟踪和分割
+
+视觉任务的输出不同，不能只替换数据集就沿用同一个分类头：
+
+| 任务 | 典型输出 | 评价重点 |
+|---|---|---|
+| 图像分类 | 整张图一个或多个类别 | Accuracy、F1、Top-k |
+| 分类加定位 | 一个类别和一个边界框 | 分类指标与 IoU |
+| 目标检测 | 多个类别、边界框和存在分数 | AP、mAP、Recall |
+| 目标跟踪 | 每帧边界框及跨帧身份编号 | 检测质量、身份切换、轨迹连续性 |
+| 语义分割 | 每个像素的语义类别 | mIoU、Dice |
+| 实例分割 | 每个目标独立的像素掩码 | Mask AP、mIoU |
+
+非极大值抑制 NMS 的流程是：删除低置信度框 → 保留最高分框 → 删除与其 IoU 过高的同类重复框 → 对剩余框重复。阈值过低可能误删相邻目标，阈值过高会留下大量重复框。某些现代端到端检测器使用集合预测减少对 NMS 的依赖，但这不是所有检测模型的共同性质。
+
+边界框损失只使用普通坐标误差时，很难直接反映重叠关系。IoU 类损失从重叠面积出发，GIoU、DIoU、CIoU 又分别引入最小包围区域、中心距离或宽高比等信息。选择损失时要与框的参数化、目标尺度和实现保持一致。
+
+迁移学习的稳妥流程是：加载匹配的预训练预处理 → 替换任务头 → 冻结骨干训练新头 → 重新创建包含已解冻参数的优化器 → 用较小学习率逐层解冻。不同参数组可以为骨干和新头设置不同学习率。每次解冻后都要重新检查 BatchNorm 状态、训练曲线和过拟合情况。
+
+下面展示“先冻结骨干，再解冻最后一层并使用差别学习率”的关键写法：
+
+```python
+from torch import nn
+from torchvision.models import ResNet18_Weights, resnet18
+
+model = resnet18(weights=ResNet18_Weights.DEFAULT)                               # 加载 ImageNet 预训练的 ResNet-18
+for parameter in model.parameters():
+    parameter.requires_grad = False                                              # 第一阶段冻结全部预训练参数
+
+model.fc = nn.Linear(model.fc.in_features, num_classes)                          # 新分类头默认 requires_grad=True
+model = model.to(device)                                                         # 模型和后续输入必须位于同一设备
+optimizer = torch.optim.AdamW(model.fc.parameters(), lr=1e-3)                   # 第一阶段只优化随机初始化的新分类头
+
+for parameter in model.layer4.parameters():
+    parameter.requires_grad = True                                               # 第二阶段解冻最靠近输出端的残差层
+
+optimizer = torch.optim.AdamW([
+    {"params": model.layer4.parameters(), "lr": 1e-5},                         # 预训练骨干用较小学习率，避免破坏已有表示
+    {"params": model.fc.parameters(), "lr": 1e-3},                            # 新分类头继续使用较大学习率
+], weight_decay=1e-4)                                                            # 解冻后重新创建优化器以纳入新增参数
+```
+
 ## 14. RNN、LSTM 与序列建模
 
 对应线索：深度学习 51—56。
@@ -1563,6 +1782,47 @@ class SequenceModel(nn.Module):                 # 同一个封装可选择普通
 ```
 
 `unfold()` 生成重叠滑动窗口；`batch_first=True` 规定输入形状为“批次、时间、特征”。LSTM 的 `state` 同时包含隐藏状态和细胞状态，普通 RNN 只有隐藏状态。
+
+### 14.5 RNN 任务形态、多步预测与 GRU
+
+RNN 的输入输出结构应根据任务设计：
+
+- 序列到序列、同步输出：每个输入时间步都产生对应输出，例如逐帧标注。
+- 序列到向量：整段序列产生一个结果，例如情感分类或故障判断。
+- 向量到序列：从一个初始表示生成序列，例如条件音乐生成。
+- 编码器—解码器：先读完整输入序列，再生成长度可能不同的输出序列。
+
+在 `batch_first=True` 时，`outputs` 的形状通常是“批次、时间、隐藏维”；最终状态仍按“层数乘方向数、批次、隐藏维”组织。`sequence_length` 表示时间步数量，`input_size` 表示每个时间步的特征数量，二者不能混淆。
+
+多步时间序列预测有三种常见方式：
+
+| 方式 | 原理 | 主要取舍 |
+|---|---|---|
+| 递归预测 | 单步模型的输出反复作为下一步输入 | 预测长度灵活，但误差和训练—推理分布差异会累积 |
+| 直接多输出 | 一次输出固定数量的未来值 | 不递归回灌，预测长度固定，远期仍更难 |
+| 序列到序列 | 为多个输入位置或解码步产生预测 | 梯度路径更直接，结构和掩码更复杂 |
+
+GRU（Gated Recurrent Unit，门控循环单元）使用更新门和重置门控制记忆，没有独立的细胞状态，参数通常少于 LSTM。GRU 不是 LSTM 的简化替代定律；两者应在相同切分和预算下比较。双向 RNN 同时利用左右上下文，适合整段输入已知的分类和标注，不适合要求严格在线、不能看到未来的因果预测。
+
+下面的 GRU 一次预测固定数量的未来时间步，避免把自己的单步预测反复喂回模型：
+
+```python
+from torch import nn
+
+class DirectMultiStepGRU(nn.Module):
+    def __init__(self, input_size, hidden_size, forecast_steps, target_size=1):
+        super().__init__()
+        self.forecast_steps = forecast_steps                                      # 保存需要一次预测的未来步数
+        self.target_size = target_size                                            # 每个未来时间步需要预测的目标数量
+        self.gru = nn.GRU(input_size, hidden_size, batch_first=True)              # 输入形状为 [批次, 历史时间步, 特征]
+        self.output = nn.Linear(hidden_size, forecast_steps * target_size)        # 一次输出全部未来时间步和目标
+
+    def forward(self, X):
+        sequence_output, final_state = self.gru(X)                               # sequence_output 保存每个历史时间步的表示
+        last_output = sequence_output[:, -1]                                     # 取最后一个历史时间步的隐藏表示
+        forecast = self.output(last_output)                                      # 映射为扁平的多步预测向量
+        return forecast.reshape(-1, self.forecast_steps, self.target_size)        # 恢复为 [批次, 未来时间步, 目标数]
+```
 
 ## 15. NLP、Seq2Seq、注意力与 Transformer
 
@@ -1637,6 +1897,51 @@ print(gpt_tokenizer.decode(output_ids[0], skip_special_tokens=True))            
 
 BERT 示例取得第一个 token 的上下文表示；GPT 示例执行自回归生成。`AutoTokenizer` 自动加载与模型匹配的分词器，`return_tensors="pt"` 表示返回 PyTorch 张量。
 
+### 15.6 NLP 批处理、解码与表示选择
+
+文本批处理需要同时维护 token ID、真实长度或 attention mask。Padding 只是为了对齐张量形状，不应参加循环状态汇总、注意力权重、损失和准确率计算。RNN 可以使用 `PackedSequence` 跳过填充位置；Transformer 通常依赖 attention mask。
+
+词嵌入有两种不同含义：静态嵌入表为每个 token ID 提供固定向量；BERT 等模型的上下文化表示会根据整句上下文，为同一个 token 产生不同向量。`last_hidden_state` 中的 `last` 指最后一层网络，不是最后一个时间步。
+
+句子分类常用三种表示：最后一个有效循环状态、BERT 的 `[CLS]` 最后一层表示、模型提供的 `pooler_output`。它们的训练目标和含义不同，应由验证结果选择，不能仅凭张量形状相同就互换。
+
+解码策略改变生成结果，但不改变已经训练好的模型参数：
+
+| 策略 | 做法 | 特点 |
+|---|---|---|
+| 贪心解码 | 每步取最高概率 token | 快，但早期错误无法回退 |
+| Beam Search | 保留若干累计分数较高的候选序列 | 更全面，计算量随 beam 宽度增加，需处理长度偏好 |
+| 温度采样 | 用温度缩放 logits 后随机采样 | 温度低更确定，温度高更多样 |
+| Top-k | 只在概率最高的 k 个 token 中采样 | 限制极低概率词进入候选 |
+| Top-p | 在累计概率达到 p 的最小候选集合中采样 | 候选数量会随上下文动态变化 |
+
+Teacher Forcing 在训练时给解码器真实上一步 token，训练高效但会造成推理时输入分布不同。可通过验证不同 teacher-forcing 比例、计划采样或更强的序列级训练缓解，但这些方法也会引入新的偏差和复杂度。
+
+下面用真实长度打包变长文本，使双向 GRU 不把 padding 当作有效内容：
+
+```python
+import torch
+from torch import nn
+from torch.nn.utils.rnn import pack_padded_sequence
+
+class PackedBidirectionalGRU(nn.Module):
+    def __init__(self, vocab_size, embedding_dim, hidden_size):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)   # padding_idx=0 的填充向量不按普通 token 更新
+        self.gru = nn.GRU(embedding_dim, hidden_size, batch_first=True,
+                          bidirectional=True)                                     # 同时从左到右和从右到左读取完整文本
+        self.classifier = nn.Linear(hidden_size * 2, 1)                           # 拼接两个方向状态后输出一个情感 logit
+
+    def forward(self, token_ids, attention_mask):
+        lengths = attention_mask.sum(dim=1).cpu()                                # 由掩码计算每条文本的真实 token 数，打包函数需要 CPU 长度
+        embedded = self.embedding(token_ids)                                     # 把 token ID 转换为连续嵌入向量
+        packed = pack_padded_sequence(embedded, lengths, batch_first=True,
+                                      enforce_sorted=False)                      # 跳过 padding，且允许批次未按长度排序
+        packed_output, final_state = self.gru(packed)                            # final_state 形状含方向维、批次维和隐藏维
+        representation = torch.cat([final_state[-2], final_state[-1]], dim=1)    # 拼接最后一层的正向与反向最终状态
+        return self.classifier(representation).squeeze(-1)                       # 返回每条文本的二分类 logit
+```
+
 ## 16. 预训练语言模型、LoRA 与 Vision Transformer
 
 对应线索：深度学习 65—69。
@@ -1707,6 +2012,117 @@ patches = patch_embedding(images).flatten(start_dim=2).transpose(1, 2)          
 ```
 
 LoRA 只训练低秩适配器；`q_proj`、`v_proj` 是注意力中的查询和值投影层。ViT 用卷积核大小等于步幅的卷积切出互不重叠的 patch，再把结果整理成“批次、patch 数、嵌入维度”。
+
+### 16.5 BERT、GPT 与 Transformer 三种主体结构
+
+| 结构 | 注意力可见范围 | 典型训练目标 | 适合任务 |
+|---|---|---|---|
+| 仅编码器 | 每个 token 可看双向上下文 | 掩码语言建模等 | 分类、抽取、编码和检索 |
+| 仅解码器 | 只能看当前位置及之前 token | 下一个 token 预测 | 自回归生成、对话、代码生成 |
+| 编码器—解码器 | 编码器双向；解码器因果；二者交叉注意力 | 条件序列生成 | 翻译、摘要、结构化转换 |
+
+BERT 的预训练通常通过 Masked Language Modeling（掩码语言建模）学习双向表示，微调时增加任务头。GPT 用因果语言建模按顺序预测下一个 token，零样本、单样本和少样本学习通过提示中的任务描述及示例让模型在上下文中适配，不会在推理时更新模型权重。
+
+生成模型的聊天能力不仅来自预训练。常见流程是预训练 → SFT（Supervised Fine-Tuning，监督微调）→ 偏好对齐。RLHF 使用人类偏好训练奖励信号再优化策略；DPO（Direct Preference Optimization，直接偏好优化）直接利用成对偏好数据优化模型。两者都依赖数据质量，并不能保证回答真实、无偏或安全。
+
+完整聊天系统还需要对话模板、系统提示、上下文截断、工具调用、检索、结构化输出、内容校验和监控。MCP（Model Context Protocol，模型上下文协议）用于把模型与外部工具或数据源按统一接口连接；它解决接入方式，不自动保证工具结果正确或权限合理。
+
+下面比较同一 GPT 模型的贪心生成与 Top-p 随机采样；模型和分词器应使用同一个检查点：
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model_name = "gpt2"                                                         # 分词器和模型必须来自同一个检查点
+tokenizer = AutoTokenizer.from_pretrained(model_name)                         # 加载 GPT-2 对应的子词分词器
+model = AutoModelForCausalLM.from_pretrained(model_name).to(device)            # 加载因果语言模型并移动到推理设备
+inputs = tokenizer("Machine learning can", return_tensors="pt").to(device)   # 编码提示词并把全部输入张量移动到同一设备
+
+greedy_ids = model.generate(**inputs, max_new_tokens=40, do_sample=False)       # 贪心解码每一步都选择最高概率 token
+sample_ids = model.generate(
+    **inputs,
+    max_new_tokens=40,                                                         # 最多在提示词之后生成 40 个新 token
+    do_sample=True,                                                            # 开启随机采样而非固定取最大概率
+    temperature=0.8,                                                          # 小于 1 的温度让概率分布更集中
+    top_p=0.9,                                                                 # 只在累计概率达到 0.9 的最小候选集合中采样
+    pad_token_id=tokenizer.eos_token_id,                                       # GPT-2 没有独立 pad token，生成时用结束 token 代替
+)
+
+print(tokenizer.decode(greedy_ids[0], skip_special_tokens=True))                # 解码并显示确定性较强的贪心结果
+print(tokenizer.decode(sample_ids[0], skip_special_tokens=True))                # 解码并显示具有随机性的 Top-p 结果
+```
+
+### 16.6 Vision Transformer 与视觉注意力
+
+ViT 把图像分成 P×P 小块。若图像高宽分别为 H、W，则图块数量为：
+
+N = (H/P)(W/P)
+
+**符号说明：** `N` 是视觉 token 数量；`H`、`W` 是图像高度和宽度；`P` 是正方形图块边长。这里假设 H 和 W 都能被 P 整除，且图块不重叠。
+
+每个图块展平并投影到嵌入维度，前面可加入可学习的 `[CLS]` token，再加位置嵌入后送入 Transformer Encoder。分类时通常读取 `[CLS]` 表示或对全部视觉 token 聚合。图像分辨率提高或图块变小时，N 会迅速增大，而完整自注意力的注意力矩阵大小约为 N²。
+
+Swin Transformer 用局部窗口和移动窗口降低计算量并建立跨窗口联系；金字塔视觉 Transformer 逐级降低空间分辨率、提高通道维度，适合检测和分割；DINO 等自监督方法不依赖人工类别标签学习视觉表示。注意力图可以辅助解释模型关注位置，但不能单独证明因果关系或模型决策完全可靠。
+
+DETR 把目标检测视为集合预测，用 CNN 或视觉骨干提取特征，再由 Transformer 和一组对象查询直接预测目标集合，并通过匹配把预测与真实框对应。它与传统密集候选框检测器的训练方式不同。
+
+下面给出从图像到 ViT token 序列的完整形状变换，包括分类 token 和位置嵌入：
+
+```python
+import torch
+from torch import nn
+
+class PatchTokenizer(nn.Module):
+    def __init__(self, image_size=224, patch_size=16, embed_dim=768):
+        super().__init__()
+        assert image_size % patch_size == 0                                      # 图像高宽必须能被图块边长整除
+        n_patches = (image_size // patch_size) ** 2                              # 计算每张图像产生的视觉 token 数量
+        self.projection = nn.Conv2d(3, embed_dim, kernel_size=patch_size,
+                                    stride=patch_size)                            # 用不重叠卷积同时完成切块和线性投影
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))              # 创建可学习的分类 token，初始形状为 [1,1,E]
+        self.position = nn.Parameter(torch.zeros(1, n_patches + 1, embed_dim))   # 为分类 token 和全部图块创建位置嵌入
+
+    def forward(self, images):
+        patches = self.projection(images)                                        # 输出形状为 [B,E,H/P,W/P]
+        patches = patches.flatten(2).transpose(1, 2)                             # 整理为 [B,N,E] 的视觉 token 序列
+        cls_tokens = self.cls_token.expand(images.shape[0], -1, -1)              # 为批次中的每张图像复制分类 token
+        tokens = torch.cat([cls_tokens, patches], dim=1)                         # 把分类 token 拼接到图块序列最前面
+        return tokens + self.position                                             # 加入位置信息后交给 Transformer Encoder
+```
+
+### 16.7 多模态学习：CLIP、双流模型与潜在空间
+
+多模态模型要同时解决表示与对齐：不同模态先编码成可比较的向量，再学习哪些文本、图像、音频或视频属于同一语义。
+
+CLIP 使用图像编码器和文本编码器形成双塔结构，通过对比学习提高匹配图文的相似度、降低不匹配组合的相似度。批次内相似度矩阵可以从“图找文”和“文找图”两个方向计算交叉熵。归一化后的点积等价于余弦相似度；可学习温度控制分布尖锐程度。
+
+CLIP 的零样本分类把类别名称写入若干文本模板，编码成类别向量，再比较图像向量与各类别文本向量。结果对模板、类别措辞、数据分布和训练语料偏差敏感，不能把相似度直接解释为经过校准的真实概率。
+
+ViLBERT 等双流结构分别处理视觉和文本，再用交叉注意力交换信息；Flamingo、BLIP-2 等方法通过连接模块把冻结或部分冻结的视觉编码器与语言模型组合。Perceiver 使用较短的可学习潜在数组作为查询，通过交叉注意力读取高维输入，从而把主要计算放在固定长度潜在空间；Perceiver IO 又用输出查询支持多种输出结构。
+
+多模态生成与理解必须区分：图文检索只要求相似度排序，视觉问答要求条件文本生成，文本生成图像需要生成模型对视觉分布建模。它们可能共享编码器或注意力思想，但训练目标与评价指标不同。
+
+下面使用 CLIP 完成零样本图像分类。文本模板也是模型输入的一部分，实际项目应比较多种模板并在验证集上确认：
+
+```python
+import torch
+from transformers import CLIPModel, CLIPProcessor
+
+model_name = "openai/clip-vit-base-patch32"                                     # 图文编码器和处理器必须使用相同检查点
+processor = CLIPProcessor.from_pretrained(model_name)                            # 加载图像预处理和文本分词规则
+model = CLIPModel.from_pretrained(model_name).to(device)                         # 加载预训练 CLIP 双塔模型
+
+class_names = ["cat", "dog", "car"]                                           # 定义当前任务允许的候选类别
+prompts = [f"a photo of a {name}" for name in class_names]                      # 把类别名称写成更接近训练语料的自然语言模板
+inputs = processor(text=prompts, images=image, return_tensors="pt",
+                   padding=True).to(device)                                      # 同时处理一张图像和全部候选文本
+
+with torch.no_grad():
+    outputs = model(**inputs)                                                     # 分别编码图像和文本，再计算两者相似度
+    probabilities = outputs.logits_per_image.softmax(dim=1)                      # 在当前候选类别内归一化为相对概率
+    predicted_index = probabilities.argmax(dim=1).item()                         # 选择与图像相似度最高的文本类别
+
+print(class_names[predicted_index], probabilities[0, predicted_index].item())    # 输出类别名称和当前候选集合内的分数
+```
 
 ## 17. 英文专业名词与缩写解释
 
@@ -2273,6 +2689,17 @@ with torch.no_grad():                   # 推理不需要计算梯度
 这套骨架需要牢牢记住以下状态切换：训练前调用 `model.train()`，验证和推理前调用 `model.eval()`，验证和推理使用 `torch.no_grad()`，每次反向传播前清空梯度。保存检查点时同时记录模型权重和重建模型所需的结构参数。
 
 真实项目还应补充配置文件、日志、实验记录、早停、测试集评价、错误样本分析和依赖版本。分布式训练、混合精度和梯度累积应在基础流程正确后再加入。
+
+从笔记中的完整训练过程，可以把深度学习项目的检查清单再具体化为：
+
+1. **数据契约：** 记录输入 shape、dtype、取值范围、标签编码、词表或类别映射；训练和推理共用同一预处理配置。
+2. **实验配置：** 固定随机种子，保存数据版本、代码版本、超参数、设备和依赖版本，不能只保存最终权重。
+3. **训练状态：** 明确 `train()`、`eval()`、梯度开关、梯度清零和调度器调用时机；梯度累积时记录有效批量大小。
+4. **数值稳定：** 检查 NaN、无穷值、梯度范数和学习率；需要时使用混合精度、梯度裁剪及稳定的组合损失。
+5. **验证与早停：** 用验证集选择最佳轮次并保存最佳检查点，同时保留最后检查点以便故障恢复；测试集不参与早停。
+6. **评价与分析：** 报告整体和分组指标、置信区间、混淆矩阵或典型错误；生成任务还要检查输出质量和失败模式。
+7. **推理复现：** 从磁盘重新加载模型，在独立进程中对固定样例验证输出；确认 `eval()`、设备、批处理和后处理一致。
+8. **部署准备：** 测量延迟、吞吐、峰值内存和模型大小，再决定编译、量化、剪枝或蒸馏；每次优化后重新检查精度。
 
 ## 19. NumPy 与 Pandas 配套知识
 
