@@ -200,8 +200,8 @@ from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
-# 建立数值特征流水线：先填补缺失值，再统一量纲
-num_pipeline = make_pipeline(
+
+num_pipeline = make_pipeline(               # 建立数值特征流水线：先填补缺失值，再统一量纲
     SimpleImputer(strategy="median"),       # 用训练集各列中位数填补缺失值，对极端值比均值更稳健
     StandardScaler(),                       # 记录训练集均值和标准差，并据此完成标准化
 )
