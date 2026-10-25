@@ -1,4 +1,4 @@
-# Peng Sun 机器学习知识点与算法原理
+# 机器学习知识点与算法原理
 
 整理日期：2026-10-25。
 
@@ -202,22 +202,18 @@ from sklearn.preprocessing import FunctionTransformer, StandardScaler
 
 # 建立数值特征流水线：先填补缺失值，再统一量纲
 num_pipeline = make_pipeline(
-    # 用训练集各列中位数填补缺失值，对极端值比均值更稳健
-    SimpleImputer(strategy="median"),
-    # 记录训练集均值和标准差，并据此完成标准化
-    StandardScaler(),
+    SimpleImputer(strategy="median"),       # 用训练集各列中位数填补缺失值，对极端值比均值更稳健
+    StandardScaler(),                       # 记录训练集均值和标准差，并据此完成标准化
 )
-# 只在训练数据上拟合预处理统计量，同时得到转换结果
-X_num_ready = num_pipeline.fit_transform(X_num)
 
-# 把通用 RBF 核包装成符合流水线接口的转换器
-rbf_transformer = FunctionTransformer(
+X_num_ready = num_pipeline.fit_transform(X_num)      # 只在训练数据上拟合预处理统计量，同时得到转换结果
+
+rbf_transformer = FunctionTransformer(               # 把通用 RBF 核包装成符合流水线接口的转换器
     rbf_kernel,
-    # 计算每个年龄与参考点 35 的相似度；gamma 控制衰减速度
-    kw_args={"Y": [[35.0]], "gamma": 0.1},
+    kw_args={"Y": [[35.0]], "gamma": 0.1},           # 计算每个年龄与参考点 35 的相似度；gamma 控制衰减速度
 )
-# 输出一列 RBF 相似度特征
-age_similarity = rbf_transformer.transform(age)
+
+age_similarity = rbf_transformer.transform(age)      # 输出一列 RBF 相似度特征
 ```
 
 `fit_transform()` 只应在训练集上拟合统计量。RBF 是 **Radial Basis Function（径向基函数）**；这里把年龄转换为“与 35 岁有多相似”的特征，`gamma` 越大，相似度随距离衰减得越快。
@@ -327,28 +323,25 @@ from sklearn.metrics import precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import GridSearchCV, cross_val_predict
 from sklearn.ensemble import RandomForestClassifier
 
-# 固定随机种子，便于复现实验结果
-model = RandomForestClassifier(random_state=42)
-# 每个样本的预测都来自没有见过该样本的交叉验证模型
-y_pred = cross_val_predict(model, X_train, y_train, cv=3)
-# 计算预测为正的样本中有多少是真正例
-print("precision:", precision_score(y_train, y_pred))
-# 计算全部真正例中有多少被模型找出
-print("recall:", recall_score(y_train, y_pred))
 
-# 枚举参数网格，并用交叉验证 AUC 选择最佳组合
-search = GridSearchCV(
+model = RandomForestClassifier(random_state=42)                         # 固定随机种子，便于复现实验结果
+
+y_pred = cross_val_predict(model, X_train, y_train, cv=3)               # 每个样本的预测都来自没有见过该样本的交叉验证模型
+print("precision:", precision_score(y_train, y_pred))                   # 计算预测为正的样本中有多少是真正例
+
+print("recall:", recall_score(y_train, y_pred))                         # 计算全部真正例中有多少被模型找出
+
+
+search = GridSearchCV(                      # 枚举参数网格，并用交叉验证 AUC 选择最佳组合
     model,
-    # 同时搜索树的数量和最大深度
-    param_grid={"n_estimators": [100, 300], "max_depth": [None, 10]},
+    param_grid={"n_estimators": [100, 300], "max_depth": [None, 10]},   # 同时搜索树的数量和最大深度
     cv=3,
-    # 用排序能力而非默认准确率选择模型
-    scoring="roc_auc",
+    scoring="roc_auc",                                  # 用排序能力而非默认准确率选择模型                 
 )
-# 搜索过程只能使用训练集
-search.fit(X_train, y_train)
-# 输出最佳参数及其平均交叉验证分数
-print(search.best_params_, search.best_score_)
+
+search.fit(X_train, y_train)                            # 搜索过程只能使用训练集
+
+print(search.best_params_, search.best_score_)          # 输出最佳参数及其平均交叉验证分数
 ```
 
 `cross_val_predict()` 为每个训练样本生成一次折外预测，适合计算混淆矩阵等指标。`GridSearchCV` 会枚举参数组合；`CV` 是 Cross-Validation（交叉验证），`ROC AUC` 是 ROC 曲线下面积。
@@ -487,24 +480,21 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 
-# 二次多项式回归的完整流水线
-poly_reg = make_pipeline(
-    # 生成平方项和特征交互项，不重复生成常数列
-    PolynomialFeatures(degree=2, include_bias=False),
-    # 缩放展开后的特征，避免不同量级影响训练
-    StandardScaler(),
+
+poly_reg = make_pipeline(           # 二次多项式回归的完整流水线
+    
+    PolynomialFeatures(degree=2, include_bias=False),               # 生成平方项和特征交互项，不重复生成常数列
+    StandardScaler(),                                               # 缩放展开后的特征，避免不同量级影响训练
     LinearRegression(),
 )
-# 在回归训练集上依次拟合转换器和线性模型
-poly_reg.fit(X_reg_train, y_reg_train)
-# 对测试集执行相同转换后预测连续值
-y_reg_pred = poly_reg.predict(X_reg_test)
 
-# 逻辑回归用于估计二分类概率
-log_clf = LogisticRegression(random_state=42)
+poly_reg.fit(X_reg_train, y_reg_train)                              # 在回归训练集上依次拟合转换器和线性模型
+y_reg_pred = poly_reg.predict(X_reg_test)                           # 对测试集执行相同转换后预测连续值
+
+log_clf = LogisticRegression(random_state=42)                       # 逻辑回归用于估计二分类概率
 log_clf.fit(X_cls_train, y_cls_train)
-# 取第 1 类，也就是正类的预测概率
-positive_probability = log_clf.predict_proba(X_cls_test)[:, 1]
+
+positive_probability = log_clf.predict_proba(X_cls_test)[:, 1]      # 取第 1 类，也就是正类的预测概率
 ```
 
 `PolynomialFeatures` 负责生成幂次项和交互项；`predict_proba()` 返回类别概率。这里的 Logistic Regression 虽名为“回归”，实际常用于分类。
@@ -621,23 +611,22 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
-# 加载鸢尾花多分类数据集
-iris = load_iris()
-# X 是四个数值特征，y 是三种鸢尾花标签
-X, y = iris.data, iris.target
 
-# KNN 使用距离计算，先标准化，再由 5 个近邻投票
-knn = make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=5))
-# RBF-SVM 同样对尺度敏感，gamma="scale" 按数据方差设置初值
-svm = make_pipeline(StandardScaler(), SVC(kernel="rbf", gamma="scale"))
-# 限制树深以减少过拟合；决策树通常不需要缩放
-tree = DecisionTreeClassifier(max_depth=3, random_state=42)
+iris = load_iris()                          # 加载鸢尾花多分类数据集
 
-# 使用相同接口依次训练并比较三个模型
-for model in (knn, svm, tree):
+X, y = iris.data, iris.target               # X 是四个数值特征，y 是三种鸢尾花标签
+
+
+knn = make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=5))          # KNN 使用距离计算，先标准化，再由 5 个近邻投票
+
+svm = make_pipeline(StandardScaler(), SVC(kernel="rbf", gamma="scale"))             # RBF-SVM 同样对尺度敏感，gamma="scale" 按数据方差设置初值
+
+tree = DecisionTreeClassifier(max_depth=3, random_state=42)                         # 限制树深以减少过拟合；决策树通常不需要缩放
+
+
+for model in (knn, svm, tree):                                   # 使用相同接口依次训练并比较三个模型
     model.fit(X, y)
-    # 显示模型类型和前三个样本的预测类别
-    print(type(model).__name__, model.predict(X[:3]))
+    print(type(model).__name__, model.predict(X[:3]))            # 显示模型类型和前三个样本的预测类别
 ```
 
 KNN 和 RBF-SVM 对特征尺度敏感，因此先标准化；树按阈值切分，一般不要求缩放。`SVC` 是 Support Vector Classifier（支持向量分类器）。
@@ -755,32 +744,27 @@ Bagging 主要通过并行训练和平均来降低方差；Boosting 顺序修正
 from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
 
-# 组合多棵随机化决策树，通过平均降低方差
-forest = RandomForestClassifier(
-    # 训练 300 棵树
-    n_estimators=300,
-    # 限制每棵树最多 16 个叶节点，控制复杂度
-    max_leaf_nodes=16,
-    # 使用全部可用 CPU 核心并行训练
-    n_jobs=-1,
-    random_state=42,
-)
-# 只在训练集上拟合森林
-forest.fit(X_train, y_train)
-# 组合所有树的结果，得到测试集类别预测
-y_pred_forest = forest.predict(X_test)
 
-# 顺序训练弱学习器，并提高难分样本的影响
-ada = AdaBoostClassifier(
-    # 使用深度为 1 的决策树桩作为弱学习器
-    estimator=DecisionTreeClassifier(max_depth=1),
-    n_estimators=30,
-    # 缩小每个弱学习器对最终结果的贡献
-    learning_rate=0.5,
+forest = RandomForestClassifier(                        # 组合多棵随机化决策树，通过平均降低方差
+    n_estimators=300,                                   # 训练 300 棵树
+    max_leaf_nodes=16,                                  # 限制每棵树最多 16 个叶节点，控制复杂度
+    n_jobs=-1,                                          # 使用全部可用 CPU 核心并行训练
     random_state=42,
 )
-# 后一轮会根据前一轮的错误调整样本权重
-ada.fit(X_train, y_train)
+
+forest.fit(X_train, y_train)                             # 只在训练集上拟合森林
+
+y_pred_forest = forest.predict(X_test)                   # 组合所有树的结果，得到测试集类别预测
+
+
+ada = AdaBoostClassifier(                                # 顺序训练弱学习器，并提高难分样本的影响
+    estimator=DecisionTreeClassifier(max_depth=1),       # 使用深度为 1 的决策树桩作为弱学习器
+    n_estimators=30,
+    learning_rate=0.5,                                   # 缩小每个弱学习器对最终结果的贡献
+    random_state=42,
+)
+
+ada.fit(X_train, y_train)                                # 后一轮会根据前一轮的错误调整样本权重
 ```
 
 `n_estimators` 是基学习器数量；`n_jobs=-1` 表示使用全部可用 CPU 核心；AdaBoost 中深度为 1 的树称为 decision stump（决策树桩）。部分旧版 scikit-learn 使用参数名 `base_estimator`。
@@ -889,15 +873,14 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import LocallyLinearEmbedding
 from sklearn.random_projection import GaussianRandomProjection
 
-# PCA 选择最大方差的两个正交方向
-X_pca = PCA(n_components=2).fit_transform(X)
-# 随机投影用随机矩阵快速映射到二维
-X_rp = GaussianRandomProjection(n_components=2, random_state=42).fit_transform(X)
-# LLE 尝试在低维空间保留局部邻域结构
-X_lle = LocallyLinearEmbedding(
+
+X_pca = PCA(n_components=2).fit_transform(X)                # PCA 选择最大方差的两个正交方向
+
+X_rp = GaussianRandomProjection(n_components=2, random_state=42).fit_transform(X)           # 随机投影用随机矩阵快速映射到二维
+
+X_lle = LocallyLinearEmbedding(                             # LLE 尝试在低维空间保留局部邻域结构
     n_components=2,
-    # 每个样本用 10 个邻居建立局部重构关系
-    n_neighbors=10,
+    n_neighbors=10,                                         # 每个样本用 10 个邻居建立局部重构关系
     random_state=42,
 ).fit_transform(X)
 ```
@@ -1051,20 +1034,18 @@ from sklearn.cluster import DBSCAN, KMeans
 from sklearn.datasets import make_moons
 from sklearn.mixture import GaussianMixture
 
-# 生成带少量噪声的双月牙数据；下划线表示忽略真实标签
-X, _ = make_moons(n_samples=1000, noise=0.05, random_state=42)
 
-# K-Means 假设两个簇，并返回每个样本的硬标签
-kmeans_labels = KMeans(n_clusters=2, random_state=42).fit_predict(X)
-# DBSCAN 以半径 0.1 和最少 5 个邻域样本寻找密度簇
-dbscan_labels = DBSCAN(eps=0.1, min_samples=5).fit_predict(X)
+X, _ = make_moons(n_samples=1000, noise=0.05, random_state=42)                  # 生成带少量噪声的双月牙数据；下划线表示忽略真实标签
 
-# 用两个高斯成分建模，并从 10 次初始化中选较优结果
-gmm = GaussianMixture(n_components=2, n_init=10, random_state=42)
-# 用 EM 算法估计混合权重、均值和协方差
-gmm.fit(X)
-# 返回每个样本属于各高斯成分的软概率
-soft_membership = gmm.predict_proba(X)
+kmeans_labels = KMeans(n_clusters=2, random_state=42).fit_predict(X)            # K-Means 假设两个簇，并返回每个样本的硬标签
+
+dbscan_labels = DBSCAN(eps=0.1, min_samples=5).fit_predict(X)                   # DBSCAN 以半径 0.1 和最少 5 个邻域样本寻找密度簇
+
+gmm = GaussianMixture(n_components=2, n_init=10, random_state=42)               # 用两个高斯成分建模，并从 10 次初始化中选较优结果
+
+gmm.fit(X)                                      # 用 EM 算法估计混合权重、均值和协方差
+
+soft_membership = gmm.predict_proba(X)          # 返回每个样本属于各高斯成分的软概率
 ```
 
 K-Means 和 DBSCAN 返回硬标签；GMM 的 `predict_proba()` 返回每个样本属于各高斯成分的软概率。DBSCAN 中标签 `-1` 代表噪声点。
@@ -1141,32 +1122,25 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-# 封装训练张量，每批取 32 个样本并在每轮打乱
-loader = DataLoader(TensorDataset(X_train, y_train), batch_size=32, shuffle=True)
-# 构建“输入层 → 隐藏层 → ReLU → 输出层”的回归网络
-model = nn.Sequential(
-    # 把全部输入特征映射到 50 个隐藏单元
-    nn.Linear(X_train.shape[1], 50),
-    nn.ReLU(),
-    # 输出一个连续预测值
-    nn.Linear(50, 1),
-)
-# 回归任务使用均方误差
-loss_fn = nn.MSELoss()
-# Adam 根据梯度更新全部可训练参数
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-# 遍历一个训练轮次中的所有小批次
-for X_batch, y_batch in loader:
-    # 清空上一批累积的梯度
-    optimizer.zero_grad()
-    # 前向传播，并移除长度为 1 的输出维度
-    prediction = model(X_batch).squeeze(-1)
+loader = DataLoader(TensorDataset(X_train, y_train), batch_size=32, shuffle=True)               # 封装训练张量，每批取 32 个样本并在每轮打乱
+
+model = nn.Sequential(                          # 构建“输入层 → 隐藏层 → ReLU → 输出层”的回归网络
+    nn.Linear(X_train.shape[1], 50),            # 把全部输入特征映射到 50 个隐藏单元
+    nn.ReLU(),
+    nn.Linear(50, 1),                           # 输出一个连续预测值
+)
+
+loss_fn = nn.MSELoss()                          # 回归任务使用均方误差
+
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)           # Adam 根据梯度更新全部可训练参数
+
+for X_batch, y_batch in loader:                 # 遍历一个训练轮次中的所有小批次
+    optimizer.zero_grad()                       # 清空上一批累积的梯度
+    prediction = model(X_batch).squeeze(-1)     # 前向传播，并移除长度为 1 的输出维度
     loss = loss_fn(prediction, y_batch)
-    # 反向传播，计算每个参数的梯度
-    loss.backward()
-    # 根据当前梯度更新参数
-    optimizer.step()
+    loss.backward()                             # 反向传播，计算每个参数的梯度
+    optimizer.step()                            # 根据当前梯度更新参数
 ```
 
 `DataLoader` 负责分批和打乱数据；`zero_grad()` 清除旧梯度；`backward()` 计算梯度；`step()` 更新参数。MLP 是 Multilayer Perceptron（多层感知机）。
@@ -1255,28 +1229,18 @@ y = γx̂ + β
 ```python
 import optuna
 
+def objective(trial):               # Optuna 每次试验都会调用该目标函数
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)           # 在对数尺度上搜索学习率
+    hidden_size = trial.suggest_int("hidden_size", 32, 256)                              # 搜索隐藏层宽度
+    dropout = trial.suggest_float("dropout", 0.0, 0.5)                                   # 搜索 Dropout 比例
+    model = build_model(hidden_size=hidden_size, dropout=dropout)                        # 按本次候选参数重新创建独立模型
+    return train_and_validate(model, learning_rate=learning_rate)                        # 返回验证指标，供 Optuna 比较不同试验
 
-# Optuna 每次试验都会调用该目标函数
-def objective(trial):
-    # 在对数尺度上搜索学习率
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-1, log=True)
-    # 搜索隐藏层宽度
-    hidden_size = trial.suggest_int("hidden_size", 32, 256)
-    # 搜索 Dropout 比例
-    dropout = trial.suggest_float("dropout", 0.0, 0.5)
+study = optuna.create_study(direction="maximize")                       # 目标指标越大越好；若使用损失应改为 minimize
 
-    # 按本次候选参数重新创建独立模型
-    model = build_model(hidden_size=hidden_size, dropout=dropout)
-    # 返回验证指标，供 Optuna 比较不同试验
-    return train_and_validate(model, learning_rate=learning_rate)
+study.optimize(objective, n_trials=30)                                  # 执行 30 次超参数试验
 
-
-# 目标指标越大越好；若使用损失应改为 minimize
-study = optuna.create_study(direction="maximize")
-# 执行 30 次超参数试验
-study.optimize(objective, n_trials=30)
-# 输出最佳参数和对应验证指标
-print(study.best_params, study.best_value)
+print(study.best_params, study.best_value)                              # 输出最佳参数和对应验证指标
 ```
 
 `trial` 表示一次试验；`study` 管理整组试验；`direction="maximize"` 表示评价指标越大越好。若返回验证损失，应改成 `minimize`。
@@ -1339,32 +1303,25 @@ v̂ₜ = vₜ / (1−β₂ᵗ)
 ```python
 import torch
 
-# AdamW 将权重衰减与梯度更新正确解耦
-optimizer = torch.optim.AdamW(
+optimizer = torch.optim.AdamW(                  # AdamW 将权重衰减与梯度更新正确解耦
     model.parameters(),
     lr=1e-3,
-    # 对权重施加较弱的衰减，抑制过拟合
-    weight_decay=1e-5,
+    weight_decay=1e-5,                          # 对权重施加较弱的衰减，抑制过拟合
 )
-# 在训练过程中先升高再降低学习率
-scheduler = torch.optim.lr_scheduler.OneCycleLR(
+
+scheduler = torch.optim.lr_scheduler.OneCycleLR(            # 在训练过程中先升高再降低学习率
     optimizer,
     max_lr=1e-2,
     epochs=n_epochs,
-    # 调度器每个批次更新一次，因此要知道每轮批次数
-    steps_per_epoch=len(train_loader),
+    steps_per_epoch=len(train_loader),                      # 调度器每个批次更新一次，因此要知道每轮批次数
 )
 
-# 遍历当前训练轮次的全部批次
-for X_batch, y_batch in train_loader:
+for X_batch, y_batch in train_loader:                   # 遍历当前训练轮次的全部批次
     optimizer.zero_grad()
     loss = loss_fn(model(X_batch), y_batch)
-    # 计算梯度
-    loss.backward()
-    # 先用当前学习率更新模型参数
-    optimizer.step()
-    # 再把调度器推进一个批次
-    scheduler.step()
+    loss.backward()                 # 计算梯度
+    optimizer.step()                # 先用当前学习率更新模型参数
+    scheduler.step()                # 再把调度器推进一个批次
 ```
 
 `weight_decay` 是解耦权重衰减；`OneCycleLR` 在一个训练周期内先升高再降低学习率。调度器按批次设计时，`scheduler.step()` 应放在每次参数更新之后。
@@ -1443,29 +1400,23 @@ Inception 中的 1×1 卷积可在每个位置混合通道，并在昂贵的大�
 ```python
 from torch import nn
 
-# 普通二维卷积：保持空间尺寸并把 RGB 映射为 32 个通道
-conv = nn.Conv2d(
-    # 输入是 RGB 三通道图像
-    in_channels=3,
+
+conv = nn.Conv2d(               # 普通二维卷积：保持空间尺寸并把 RGB 映射为 32 个通道
+    in_channels=3,              # 输入是 RGB 三通道图像
     out_channels=32,
-    # 使用 7×7 卷积核
-    kernel_size=7,
-    # 步幅为 1 时在四周补 3 个像素，使高宽不变
-    padding=3,
+    kernel_size=7,              # 使用 7×7 卷积核
+    padding=3,                  # 步幅为 1 时在四周补 3 个像素，使高宽不变
 )
 
-# 深度可分离卷积由逐通道卷积和 1×1 点卷积组成
-separable_conv = nn.Sequential(
-    # 每个输入通道独立完成空间卷积
-    nn.Conv2d(32, 32, kernel_size=3, padding=1, groups=32),
-    # 使用 1×1 卷积混合通道并扩展到 64 通道
-    nn.Conv2d(32, 64, kernel_size=1),
+
+separable_conv = nn.Sequential(                 # 深度可分离卷积由逐通道卷积和 1×1 点卷积组成
+    nn.Conv2d(32, 32, kernel_size=3, padding=1, groups=32),          # 每个输入通道独立完成空间卷积
+    nn.Conv2d(32, 64, kernel_size=1),           # 使用 1×1 卷积混合通道并扩展到 64 通道
 )
 
-# 先提取基础局部特征
-features = conv(images)
-# 再用更低计算量的卷积继续提取特征
-features = separable_conv(features)
+features = conv(images)                     # 先提取基础局部特征
+
+features = separable_conv(features)         # 再用更低计算量的卷积继续提取特征
 print(features.shape)
 ```
 
@@ -1522,12 +1473,11 @@ import torch
 from torch import nn
 from torchvision.models import ResNet18_Weights, resnet18
 
-# 定义输入和输出通道数相同的残差块
-class ResidualBlock(nn.Module):
+
+class ResidualBlock(nn.Module):                 # 定义输入和输出通道数相同的残差块
     def __init__(self, channels):
         super().__init__()
-        # 主分支学习残差变换
-        self.main = nn.Sequential(
+        self.main = nn.Sequential(              # 主分支学习残差变换
             nn.Conv2d(channels, channels, 3, padding=1, bias=False),
             nn.BatchNorm2d(channels),
             nn.ReLU(),
@@ -1535,15 +1485,13 @@ class ResidualBlock(nn.Module):
             nn.BatchNorm2d(channels),
         )
 
-    # 定义前向计算过程
-    def forward(self, x):
-        # 主分支与捷径分支相加后激活
-        return torch.relu(self.main(x) + x)
+    
+    def forward(self, x):               # 定义前向计算过程
+        return torch.relu(self.main(x) + x)     # 主分支与捷径分支相加后激活
 
-# 加载在 ImageNet 上预训练的 ResNet-18 权重
-model = resnet18(weights=ResNet18_Weights.DEFAULT)
-# 替换分类头，使输出类别数适配当前任务
-model.fc = nn.Linear(model.fc.in_features, num_classes)
+model = resnet18(weights=ResNet18_Weights.DEFAULT)          # 加载在 ImageNet 上预训练的 ResNet-18 权重
+
+model.fc = nn.Linear(model.fc.in_features, num_classes)     # 替换分类头，使输出类别数适配当前任务
 ```
 
 残差块中的 `+ x` 是 skip connection（跳跃连接）。加载预训练权重后替换 `fc` 分类头，即可为新类别微调。仓库本章没有 Ultralytics YOLO 训练示例，因此这里不把其他来源代码冒充为该仓库代码。
@@ -1598,25 +1546,20 @@ pᵢ = softmax(zᵢ / T)
 import torch
 from torch import nn
 
-# 把长度为 10 的序列切成窗口长度 4、步长 1 的滑动窗口
-windows = torch.arange(10).unfold(dimension=0, size=4, step=1)
 
-# 同一个封装可选择普通 RNN 或 LSTM
-class SequenceModel(nn.Module):
+windows = torch.arange(10).unfold(dimension=0, size=4, step=1)          # 把长度为 10 的序列切成窗口长度 4、步长 1 的滑动窗口
+
+
+class SequenceModel(nn.Module):                 # 同一个封装可选择普通 RNN 或 LSTM
     def __init__(self, input_size, hidden_size, output_size, use_lstm=True):
         super().__init__()
-        # 根据开关选择循环单元类型
-        recurrent = nn.LSTM if use_lstm else nn.RNN
-        # 输入形状使用“批次、时间、特征”顺序
-        self.recurrent = recurrent(input_size, hidden_size, batch_first=True)
-        # 把最后时间步的隐藏状态映射到任务输出
-        self.output = nn.Linear(hidden_size, output_size)
+        recurrent = nn.LSTM if use_lstm else nn.RNN                              # 根据开关选择循环单元类型
+        self.recurrent = recurrent(input_size, hidden_size, batch_first=True)    # 输入形状使用“批次、时间、特征”顺序
+        self.output = nn.Linear(hidden_size, output_size)                   # 把最后时间步的隐藏状态映射到任务输出
 
     def forward(self, x):
-        # outputs 包含每个时间步的隐藏状态，state 是最终状态
-        outputs, state = self.recurrent(x)
-        # 只取每条序列最后一个时间步用于预测
-        return self.output(outputs[:, -1])
+        outputs, state = self.recurrent(x)               # outputs 包含每个时间步的隐藏状态，state 是最终状态
+        return self.output(outputs[:, -1])               # 只取每条序列最后一个时间步用于预测
 ```
 
 `unfold()` 生成重叠滑动窗口；`batch_first=True` 规定输入形状为“批次、时间、特征”。LSTM 的 `state` 同时包含隐藏状态和细胞状态，普通 RNN 只有隐藏状态。
@@ -1672,25 +1615,24 @@ Transformer Encoder 典型模块是多头自注意力、残差连接、层归一
 ```python
 from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
 
-# 加载与 BERT 权重匹配的英文分词器
-bert_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-# 加载不含任务分类头的预训练 BERT 编码器
-bert = AutoModel.from_pretrained("bert-base-uncased")
-# 把文本分词、补齐到同一长度并转换成 PyTorch 张量
-inputs = bert_tokenizer(["I like soccer", "Hello, World!"],
-                        padding=True, return_tensors="pt")
-# 取每条文本第一个标记的上下文表示作为句向量示例
-cls_embedding = bert(**inputs).last_hidden_state[:, 0]
 
-# 加载 GPT-2 分词器和因果语言模型
-gpt_tokenizer = AutoTokenizer.from_pretrained("gpt2")
+bert_tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")             # 加载与 BERT 权重匹配的英文分词器
+
+bert = AutoModel.from_pretrained("bert-base-uncased")                           # 加载不含任务分类头的预训练 BERT 编码器
+
+inputs = bert_tokenizer(["I like soccer", "Hello, World!"],                     # 把文本分词、补齐到同一长度并转换成 PyTorch 张量
+                        padding=True, return_tensors="pt")
+
+cls_embedding = bert(**inputs).last_hidden_state[:, 0]                          # 取每条文本第一个标记的上下文表示作为句向量示例
+
+gpt_tokenizer = AutoTokenizer.from_pretrained("gpt2")                           # 加载 GPT-2 分词器和因果语言模型
 gpt = AutoModelForCausalLM.from_pretrained("gpt2")
-# 把提示词编码为模型输入张量
-encoded = gpt_tokenizer("Machine learning is", return_tensors="pt")
-# 按概率采样，最多生成 30 个新标记
-output_ids = gpt.generate(**encoded, max_new_tokens=30, do_sample=True)
-# 把标记编号还原为可读文本并跳过特殊标记
-print(gpt_tokenizer.decode(output_ids[0], skip_special_tokens=True))
+
+encoded = gpt_tokenizer("Machine learning is", return_tensors="pt")             # 把提示词编码为模型输入张量
+
+output_ids = gpt.generate(**encoded, max_new_tokens=30, do_sample=True)         # 按概率采样，最多生成 30 个新标记
+
+print(gpt_tokenizer.decode(output_ids[0], skip_special_tokens=True))            # 把标记编号还原为可读文本并跳过特殊标记
 ```
 
 BERT 示例取得第一个 token 的上下文表示；GPT 示例执行自回归生成。`AutoTokenizer` 自动加载与模型匹配的分词器，`return_tensors="pt"` 表示返回 PyTorch 张量。
@@ -1743,32 +1685,25 @@ N = (H/P)(W/P)
 from peft import LoraConfig, get_peft_model
 from torch import nn
 
-# 配置 LoRA 低秩适配器
-lora_config = LoraConfig(
-    # 低秩矩阵的秩；越大容量和显存开销通常越高
-    r=16,
-    # 控制 LoRA 更新的缩放强度
-    lora_alpha=32,
-    # 只给注意力中的查询和值投影层添加适配器
-    target_modules=["q_proj", "v_proj"],
-    # 对 LoRA 分支应用少量 Dropout
-    lora_dropout=0.05,
+
+lora_config = LoraConfig(                   # 配置 LoRA 低秩适配器
+    r=16,                                   # 低秩矩阵的秩；越大容量和显存开销通常越高
+    lora_alpha=32,                          # 控制 LoRA 更新的缩放强度
+    target_modules=["q_proj", "v_proj"],    # 只给注意力中的查询和值投影层添加适配器
+    lora_dropout=0.05,                      # 对 LoRA 分支应用少量 Dropout
     task_type="CAUSAL_LM",
 )
-# 把配置注入原语言模型，只训练少量新增参数
-peft_model = get_peft_model(language_model, lora_config)
 
-# 用卷积一次完成图像分块和每个块的线性投影
-patch_embedding = nn.Conv2d(
+peft_model = get_peft_model(language_model, lora_config)            # 把配置注入原语言模型，只训练少量新增参数
+
+patch_embedding = nn.Conv2d(                # 用卷积一次完成图像分块和每个块的线性投影
     in_channels=3,
     out_channels=768,
-    # 每个图像块大小为 16×16
-    kernel_size=16,
-    # 步长等于块大小，因此各块互不重叠
-    stride=16,
+    kernel_size=16,                         # 每个图像块大小为 16×16
+    stride=16,                              # 步长等于块大小，因此各块互不重叠
 )
-# 把特征图整理为“批次、块数量、嵌入维度”
-patches = patch_embedding(images).flatten(start_dim=2).transpose(1, 2)
+
+patches = patch_embedding(images).flatten(start_dim=2).transpose(1, 2)          # 把特征图整理为“批次、块数量、嵌入维度”
 ```
 
 LoRA 只训练低秩适配器；`q_proj`、`v_proj` 是注意力中的查询和值投影层。ViT 用卷积核大小等于步幅的卷积切出互不重叠的 patch，再把结果整理成“批次、patch 数、嵌入维度”。
@@ -1877,14 +1812,13 @@ LoRA 只训练低秩适配器；`q_proj`、`v_proj` 是注意力中的查询和�
 ```python
 from statsmodels.stats.proportion import confint_proportions_2indep
 
-# A 组有 10,000 次观察，其中 520 次成功
-success_a, total_a = 520, 10_000
-# B 组有 10,000 次观察，其中 565 次成功
-success_b, total_b = 565, 10_000
-# 估计“B 组转化率减 A 组转化率”的置信区间
-low, high = confint_proportions_2indep(
-    # Wald 方法依赖大样本近似，小样本或极端比例应换更稳健方法
-    success_b, total_b, success_a, total_a, method="wald"
+
+success_a, total_a = 520, 10_000                # A 组有 10,000 次观察，其中 520 次成功
+
+success_b, total_b = 565, 10_000                # B 组有 10,000 次观察，其中 565 次成功
+
+low, high = confint_proportions_2indep(         # 估计“B 组转化率减 A 组转化率”的置信区间
+    success_b, total_b, success_a, total_a, method="wald"           # Wald 方法依赖大样本近似，小样本或极端比例应换更稳健方法
 )
 print("B 相对 A 的转化率差置信区间：", low, high)
 ```
@@ -1905,16 +1839,15 @@ from sklearn.model_selection import GroupKFold, cross_val_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-# 把标准化和逻辑回归绑在一起，避免跨折泄漏
-pipeline = make_pipeline(StandardScaler(), LogisticRegression())
-# 按用户分成 5 折，同一用户不会同时出现在训练折和验证折
-cv = GroupKFold(n_splits=5)
-# 传入每条记录对应的用户编号作为分组依据
-scores = cross_val_score(pipeline, X, y, groups=user_ids,
-                         # 每折用 ROC-AUC 评价排序能力
-                         cv=cv, scoring="roc_auc")
-# 同时报告平均表现和各折波动
-print(scores.mean(), scores.std())
+
+pipeline = make_pipeline(StandardScaler(), LogisticRegression())            # 把标准化和逻辑回归绑在一起，避免跨折泄漏
+
+cv = GroupKFold(n_splits=5)             # 按用户分成 5 折，同一用户不会同时出现在训练折和验证折
+
+scores = cross_val_score(pipeline, X, y, groups=user_ids,           # 传入每条记录对应的用户编号作为分组依据
+                         cv=cv, scoring="roc_auc")                  # 每折用 ROC-AUC 评价排序能力
+
+print(scores.mean(), scores.std())                  # 同时报告平均表现和各折波动
 ```
 
 把缩放放在 Pipeline 内，可保证每一折只使用该折训练部分拟合统计量。
@@ -1932,16 +1865,16 @@ print(scores.mean(), scores.std())
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 
-# 按类别频率自动调整权重，减轻类别不平衡影响
-base_model = LogisticRegression(class_weight="balanced")
-# 用折外预测拟合 Sigmoid 概率校准器
-model = CalibratedClassifierCV(base_model, method="sigmoid", cv=5)
-# 训练基础分类器及校准器
-model.fit(X_train, y_train)
-# 取得验证集正类校准概率
-probability = model.predict_proba(X_valid)[:, 1]
-# 按业务成本选择 0.30 阈值，再转成类别预测
-y_pred = probability >= 0.30
+
+base_model = LogisticRegression(class_weight="balanced")                # 按类别频率自动调整权重，减轻类别不平衡影响
+
+model = CalibratedClassifierCV(base_model, method="sigmoid", cv=5)      # 用折外预测拟合 Sigmoid 概率校准器
+
+model.fit(X_train, y_train)                             # 训练基础分类器及校准器
+
+probability = model.predict_proba(X_valid)[:, 1]        # 取得验证集正类校准概率
+
+y_pred = probability >= 0.30                            # 按业务成本选择 0.30 阈值，再转成类别预测
 ```
 
 ### 18.4 推荐系统与排序学习
@@ -1955,14 +1888,10 @@ y_pred = probability >= 0.30
 - NDCG 根据位置折扣相关性，把正确结果排在前面得分更高。
 
 ```python
-# 计算推荐或检索结果前 K 项的召回率
-def recall_at_k(relevant_items, ranked_items, k):
-    # 真实相关项目去重后转成集合
-    relevant = set(relevant_items)
-    # 截取排序结果的前 K 项并转成集合
-    top_k = set(ranked_items[:k])
-    # 交集是成功召回数；max 避免真实集合为空时除以零
-    return len(relevant & top_k) / max(len(relevant), 1)
+def recall_at_k(relevant_items, ranked_items, k):               # 计算推荐或检索结果前 K 项的召回率
+    relevant = set(relevant_items)                              # 真实相关项目去重后转成集合
+    top_k = set(ranked_items[:k])                               # 截取排序结果的前 K 项并转成集合
+    return len(relevant & top_k) / max(len(relevant), 1)        # 交集是成功召回数；max 避免真实集合为空时除以零
 ```
 
 这里的 K 是推荐列表截取长度；分子是前 K 个结果中命中的相关物品数，分母是全部相关物品数。
@@ -1979,14 +1908,14 @@ RAG 的典型流程是：文档清洗 → 分块 → 生成向量 → 建立索�
 ```python
 from sklearn.neighbors import NearestNeighbors
 
-# 建立余弦距离近邻索引，每次返回 3 个结果
-index = NearestNeighbors(n_neighbors=3, metric="cosine")
-# 把文档向量加入索引
-index.fit(document_embeddings)
-# 把查询整理成单样本二维矩阵并检索最近文档
-distances, ids = index.kneighbors(query_embedding.reshape(1, -1))
-# 根据返回编号取出可交给生成模型的原文片段
-retrieved_chunks = [chunks[i] for i in ids[0]]
+
+index = NearestNeighbors(n_neighbors=3, metric="cosine")                # 建立余弦距离近邻索引，每次返回 3 个结果
+
+index.fit(document_embeddings)              # 把文档向量加入索引
+
+distances, ids = index.kneighbors(query_embedding.reshape(1, -1))       # 把查询整理成单样本二维矩阵并检索最近文档
+
+retrieved_chunks = [chunks[i] for i in ids[0]]              # 根据返回编号取出可交给生成模型的原文片段
 ```
 
 这是小数据上的精确检索；生产系统通常使用专门的向量索引。余弦距离越小，向量方向越相似。
@@ -2055,40 +1984,37 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 # 1. 固定配置
-# 统一随机种子，保证划分与搜索可复现
-RANDOM_STATE = 42
+
+RANDOM_STATE = 42                    # 统一随机种子，保证划分与搜索可复现
 TARGET = "target"
 DATA_PATH = Path("data.csv")
 MODEL_PATH = Path("model.joblib")
 
 # 2. 读取和检查数据
-# 读取表格；真实项目还应检查编码、主键和时间字段
-data = pd.read_csv(DATA_PATH)
+
+data = pd.read_csv(DATA_PATH)       # 读取表格；真实项目还应检查编码、主键和时间字段
 print(data.shape)
 print(data.head())
 print(data[TARGET].value_counts(dropna=False))
 
 # 3. 分离输入与标签
-# 删除目标列，剩余列作为模型输入
-X = data.drop(columns=[TARGET])
-# 单独保存监督学习标签
-y = data[TARGET]
+
+X = data.drop(columns=[TARGET])     # 删除目标列，剩余列作为模型输入
+y = data[TARGET]                    # 单独保存监督学习标签
 
 # 4. 先划分测试集，后续调参不再查看测试集
 X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
     test_size=0.2,
-    # 分层抽样，使训练集和测试集的类别比例接近
-    stratify=y,
+    stratify=y,                     # 分层抽样，使训练集和测试集的类别比例接近
     random_state=RANDOM_STATE,
 )
 
 # 5. 根据训练数据定义特征列
-# 仅根据训练集识别数值列
-numeric_columns = X_train.select_dtypes(include="number").columns
-# 其余列按类别特征处理
-categorical_columns = X_train.columns.difference(numeric_columns)
+
+numeric_columns = X_train.select_dtypes(include="number").columns           # 仅根据训练集识别数值列
+categorical_columns = X_train.columns.difference(numeric_columns)           # 其余列按类别特征处理
 
 # 6. 建立预处理器
 numeric_pipeline = make_pipeline(
@@ -2097,11 +2023,10 @@ numeric_pipeline = make_pipeline(
 )
 categorical_pipeline = make_pipeline(
     SimpleImputer(strategy="most_frequent"),
-    # 测试时遇到新类别不会报错，而是编码为全零
-    OneHotEncoder(handle_unknown="ignore"),
+    OneHotEncoder(handle_unknown="ignore"),                 # 测试时遇到新类别不会报错，而是编码为全零
 )
-# 把数值和类别流水线分别应用到对应列，再拼接结果
-preprocessing = ColumnTransformer([
+
+preprocessing = ColumnTransformer([                         # 把数值和类别流水线分别应用到对应列，再拼接结果
     ("numeric", numeric_pipeline, numeric_columns),
     ("categorical", categorical_pipeline, categorical_columns),
 ])
@@ -2109,14 +2034,12 @@ preprocessing = ColumnTransformer([
 # 7. 把预处理和模型放进同一条 Pipeline，避免数据泄漏
 pipeline = make_pipeline(
     preprocessing,
-    # 增加迭代上限，并按类别频率设置损失权重
-    LogisticRegression(max_iter=2000, class_weight="balanced"),
+    LogisticRegression(max_iter=2000, class_weight="balanced"),         # 增加迭代上限，并按类别频率设置损失权重
 )
 
 # 8. 只在训练集内部交叉验证和调参
 param_grid = {
-    # 双下划线定位流水线中的模型参数；C 越小正则化越强
-    "logisticregression__C": [0.01, 0.1, 1.0, 10.0],
+    "logisticregression__C": [0.01, 0.1, 1.0, 10.0],                    # 双下划线定位流水线中的模型参数；C 越小正则化越强
 }
 search = GridSearchCV(
     pipeline,
@@ -2130,22 +2053,20 @@ print("最佳参数：", search.best_params_)
 print("交叉验证 AUC：", search.best_score_)
 
 # 9. 在从未参与调参的测试集上做最终评价
-# 取得已用最佳参数在训练集上重新拟合的完整流水线
-best_model = search.best_estimator_
-# 概率用于计算 AUC 和按业务需求调整阈值
-test_probability = best_model.predict_proba(X_test)[:, 1]
-# 此处用 0.5 作为示例分类阈值
-test_prediction = test_probability >= 0.5
+
+best_model = search.best_estimator_                         # 取得已用最佳参数在训练集上重新拟合的完整流水线
+test_probability = best_model.predict_proba(X_test)[:, 1]   # 概率用于计算 AUC 和按业务需求调整阈值
+test_prediction = test_probability >= 0.5                   # 此处用 0.5 作为示例分类阈值
 print("测试集 AUC：", roc_auc_score(y_test, test_probability))
 print(classification_report(y_test, test_prediction))
 
 # 10. 保存完整 Pipeline，推理时自动执行相同预处理
-# 同时保存预处理器与模型，避免线上重复实现转换规则
-joblib.dump(best_model, MODEL_PATH)
+
+joblib.dump(best_model, MODEL_PATH)             # 同时保存预处理器与模型，避免线上重复实现转换规则
 
 # 11. 加载并预测新样本
-# 从磁盘恢复完整流水线
-loaded_model = joblib.load(MODEL_PATH)
+
+loaded_model = joblib.load(MODEL_PATH)          # 从磁盘恢复完整流水线
 new_probability = loaded_model.predict_proba(X_test.iloc[:5])[:, 1]
 print(new_probability)
 ```
@@ -2194,65 +2115,59 @@ torch.manual_seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 
-# 优先使用 GPU，没有 GPU 时自动回退到 CPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")           # 优先使用 GPU，没有 GPU 时自动回退到 CPU
 print("使用设备：", device)
 
 # 2. 构建 Dataset 和 DataLoader
-# 把特征和标签按样本位置绑定
-train_dataset = TensorDataset(X_train, y_train)
+
+train_dataset = TensorDataset(X_train, y_train)                 # 把特征和标签按样本位置绑定
 valid_dataset = TensorDataset(X_valid, y_valid)
 
 train_loader = DataLoader(
     train_dataset,
     batch_size=BATCH_SIZE,
-    # 训练集每轮打乱，减少样本顺序带来的偏差
-    shuffle=True,
+    shuffle=True,                   # 训练集每轮打乱，减少样本顺序带来的偏差
     num_workers=0,
 )
 valid_loader = DataLoader(
     valid_dataset,
     batch_size=BATCH_SIZE,
-    # 验证集不训练，无须打乱
-    shuffle=False,
+    shuffle=False,                  # 验证集不训练，无须打乱
     num_workers=0,
 )
 
 # 3. 定义模型
-# 定义一个用于多分类的全连接网络
-class Classifier(nn.Module):
+
+class Classifier(nn.Module):                # 定义一个用于多分类的全连接网络
     def __init__(self, input_size, hidden_size, num_classes):
         super().__init__()
         self.network = nn.Sequential(
             nn.Linear(input_size, hidden_size),
             nn.ReLU(),
-            # 训练时随机丢弃 20% 隐藏单元，抑制过拟合
-            nn.Dropout(0.2),
+            nn.Dropout(0.2),                # 训练时随机丢弃 20% 隐藏单元，抑制过拟合
             nn.Linear(hidden_size, num_classes),
         )
 
     def forward(self, x):
         return self.network(x)
 
-
-# 创建模型并在最后把参数移动到选定设备
-model = Classifier(
+    
+model = Classifier(                         # 创建模型并在最后把参数移动到选定设备
     input_size=X_train.shape[1],
     hidden_size=128,
     num_classes=int(y_train.max().item()) + 1,
 ).to(device)
 
 # 4. 定义损失、优化器和学习率调度器
-# 交叉熵直接接收未归一化 logits 和整数类别标签
-loss_fn = nn.CrossEntropyLoss()
+
+loss_fn = nn.CrossEntropyLoss()             # 交叉熵直接接收未归一化 logits 和整数类别标签
 optimizer = torch.optim.AdamW(
     model.parameters(),
     lr=LEARNING_RATE,
-    # 使用 AdamW 的权重衰减进行正则化
-    weight_decay=1e-4,
+    weight_decay=1e-4,                      # 使用 AdamW 的权重衰减进行正则化
 )
-# 验证损失长期不改善时降低学习率
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(         # 验证损失长期不改善时降低学习率
     optimizer,
     mode="min",
     patience=2,
@@ -2261,8 +2176,7 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
 
 # 5. 单轮训练函数
 def train_one_epoch(model, loader):
-    # 启用训练模式，使 Dropout 等层按训练方式工作
-    model.train()
+    model.train()           # 启用训练模式，使 Dropout 等层按训练方式工作
     total_loss = 0.0
     total_correct = 0
     total_samples = 0
@@ -2271,17 +2185,12 @@ def train_one_epoch(model, loader):
         X_batch = X_batch.to(device)
         y_batch = y_batch.to(device)
 
-        # 清空上一批的梯度
-        optimizer.zero_grad()
-        # 前向传播得到每个类别的原始分数
-        logits = model(X_batch)
+        optimizer.zero_grad()               # 清空上一批的梯度
+        logits = model(X_batch)             # 前向传播得到每个类别的原始分数
         loss = loss_fn(logits, y_batch)
-        # 反向传播计算梯度
-        loss.backward()
-        # 裁剪过大的梯度范数，提升训练稳定性
-        nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        # 根据梯度更新模型参数
-        optimizer.step()
+        loss.backward()                     # 反向传播计算梯度
+        nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)          # 裁剪过大的梯度范数，提升训练稳定性
+        optimizer.step()                    # 根据梯度更新模型参数
 
         total_loss += loss.item() * len(X_batch)
         total_correct += (logits.argmax(dim=1) == y_batch).sum().item()
@@ -2290,11 +2199,10 @@ def train_one_epoch(model, loader):
     return total_loss / total_samples, total_correct / total_samples
 
 # 6. 验证函数
-# 验证阶段关闭梯度记录，减少显存和计算开销
-@torch.no_grad()
+
+@torch.no_grad()                # 验证阶段关闭梯度记录，减少显存和计算开销
 def evaluate(model, loader):
-    # 启用评估模式，关闭 Dropout 的随机行为
-    model.eval()
+    model.eval()                # 启用评估模式，关闭 Dropout 的随机行为
     total_loss = 0.0
     total_correct = 0
     total_samples = 0
@@ -2318,8 +2226,7 @@ best_state = None
 for epoch in range(1, EPOCHS + 1):
     train_loss, train_accuracy = train_one_epoch(model, train_loader)
     valid_loss, valid_accuracy = evaluate(model, valid_loader)
-    # 把当前验证损失交给调度器判断是否降学习率
-    scheduler.step(valid_loss)
+    scheduler.step(valid_loss)              # 把当前验证损失交给调度器判断是否降学习率
 
     print(
         f"epoch={epoch:02d} "
@@ -2329,13 +2236,11 @@ for epoch in range(1, EPOCHS + 1):
         f"valid_acc={valid_accuracy:.4f}"
     )
 
-    # 只有验证损失刷新最佳值时才保存检查点
-    if valid_loss < best_valid_loss:
+    
+    if valid_loss < best_valid_loss:                    # 只有验证损失刷新最佳值时才保存检查点
         best_valid_loss = valid_loss
-        # 深拷贝当前权重，避免后续训练原地修改它
-        best_state = deepcopy(model.state_dict())
-        # 保存权重及重建模型所需的结构参数
-        torch.save({
+        best_state = deepcopy(model.state_dict())       # 深拷贝当前权重，避免后续训练原地修改它
+        torch.save({                                    # 保存权重及重建模型所需的结构参数
             "model_state_dict": best_state,
             "input_size": X_train.shape[1],
             "hidden_size": 128,
@@ -2343,29 +2248,26 @@ for epoch in range(1, EPOCHS + 1):
         }, CHECKPOINT_PATH)
 
 # 8. 恢复最佳权重
-# 训练结束后恢复验证损失最低时的权重
-model.load_state_dict(best_state)
+
+model.load_state_dict(best_state)                       # 训练结束后恢复验证损失最低时的权重
 
 # 9. 加载检查点并推理
-# 加载检查点，并把张量映射到当前设备
-checkpoint = torch.load(CHECKPOINT_PATH, map_location=device)
+
+checkpoint = torch.load(CHECKPOINT_PATH, map_location=device)           # 加载检查点，并把张量映射到当前设备
 inference_model = Classifier(
     input_size=checkpoint["input_size"],
     hidden_size=checkpoint["hidden_size"],
     num_classes=checkpoint["num_classes"],
 ).to(device)
-# 恢复训练得到的最佳参数
-inference_model.load_state_dict(checkpoint["model_state_dict"])
-# 推理前切换到评估模式
-inference_model.eval()
 
-# 推理不需要计算梯度
-with torch.no_grad():
+inference_model.load_state_dict(checkpoint["model_state_dict"])         # 恢复训练得到的最佳参数
+inference_model.eval()               # 推理前切换到评估模式
+
+
+with torch.no_grad():                   # 推理不需要计算梯度
     test_logits = inference_model(X_test.to(device))
-    # 把 logits 转换为每个类别的概率
-    test_probability = test_logits.softmax(dim=1)
-    # 选择概率最大的类别作为最终预测
-    test_prediction = test_probability.argmax(dim=1)
+    test_probability = test_logits.softmax(dim=1)           # 把 logits 转换为每个类别的概率
+    test_prediction = test_probability.argmax(dim=1)        # 选择概率最大的类别作为最终预测
 ```
 
 这套骨架需要牢牢记住以下状态切换：训练前调用 `model.train()`，验证和推理前调用 `model.eval()`，验证和推理使用 `torch.no_grad()`，每次反向传播前清空梯度。保存检查点时同时记录模型权重和重建模型所需的结构参数。
